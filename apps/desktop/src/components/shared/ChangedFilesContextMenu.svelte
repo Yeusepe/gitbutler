@@ -14,7 +14,10 @@
 	import { FILE_SELECTION_MANAGER } from "$lib/selection/fileSelectionManager.svelte";
 	import { STACK_SERVICE } from "$lib/stacks/stackService.svelte";
 	import { UI_STATE, withStackBusy } from "$lib/state/uiState.svelte";
-	import { WORKTREE_SERVICE } from "$lib/worktree/worktreeService.svelte";
+	import {
+		pathIsLocallyIgnored as pathMatchesLocalIgnore,
+		WORKTREE_SERVICE,
+	} from "$lib/worktree/worktreeService.svelte";
 	import { inject } from "@gitbutler/core/context";
 	import {
 		ContextMenu,
@@ -133,9 +136,7 @@
 		if (!path) {
 			return false;
 		}
-		return localIgnoredPaths.some(
-			(ignoredPath) => path === ignoredPath || path.startsWith(`${ignoredPath}/`),
-		);
+		return pathMatchesLocalIgnore(path, localIgnoredPaths);
 	}
 
 	async function setLocalIgnored(path: string, ignored: boolean) {

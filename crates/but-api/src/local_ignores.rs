@@ -40,9 +40,9 @@ pub(crate) fn set_local_ignored_path(
     let mut paths: BTreeSet<_> = list_local_ignored_paths(repo)?.into_iter().collect();
 
     let changed = if ignored {
-        paths.insert(normalized_path)
+        insert_local_ignored_path(&mut paths, normalized_path)
     } else {
-        paths.remove(&normalized_path)
+        remove_local_ignored_path(&mut paths, &normalized_path)
     };
     if !changed {
         return Ok(false);
@@ -73,9 +73,9 @@ pub(crate) fn set_local_ignored_paths<'a>(
     let mut changed = 0;
     for normalized_path in normalized_paths {
         let path_changed = if ignored {
-            paths.insert(normalized_path)
+            insert_local_ignored_path(&mut paths, normalized_path)
         } else {
-            paths.remove(&normalized_path)
+            remove_local_ignored_path(&mut paths, &normalized_path)
         };
         changed += usize::from(path_changed);
     }
@@ -188,14 +188,40 @@ fn remove_all_local_ignored_paths(config: &mut gix::config::File<'static>) -> Re
     Ok(())
 }
 
+fn insert_local_ignored_path(paths: &mut BTreeSet<String>, path: String) -> bool {
+    if normalized_path_is_locally_ignored(&path, paths.iter()) {
+        return false;
+    }
+
+    let child_prefix = format!("{path}/");
+    let previous_len = paths.len();
+    paths.retain(|existing| !existing.starts_with(&child_prefix));
+    let removed_children = paths.len() != previous_len;
+    paths.insert(path) || removed_children
+}
+
+fn remove_local_ignored_path(paths: &mut BTreeSet<String>, path: &str) -> bool {
+    let child_prefix = format!("{path}/");
+    let previous_len = paths.len();
+    paths.retain(|existing| existing != path && !existing.starts_with(&child_prefix));
+    paths.len() != previous_len
+}
+
 fn path_is_locally_ignored(path: &[u8], ignored_paths: &[String]) -> bool {
     let Some(normalized_path) = normalize_local_ignore_path_string(&String::from_utf8_lossy(path))
     else {
         return false;
     };
 
-    ignored_paths.iter().any(|ignored_path| {
-        normalized_path == *ignored_path || normalized_path.starts_with(&format!("{ignored_path}/"))
+    normalized_path_is_locally_ignored(&normalized_path, ignored_paths.iter())
+}
+
+fn normalized_path_is_locally_ignored<'a>(
+    normalized_path: &str,
+    ignored_paths: impl IntoIterator<Item = &'a String>,
+) -> bool {
+    ignored_paths.into_iter().any(|ignored_path| {
+        normalized_path == ignored_path || normalized_path.starts_with(&format!("{ignored_path}/"))
     })
 }
 
@@ -248,6 +274,68 @@ mod tests {
         assert_eq!(
             list_local_ignored_paths(&repo)?,
             vec!["Assets/Scenes/dealers/LightingData.asset".to_owned()]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn local_ignored_folder_paths_are_compacted_and_removed_recursively() -> Result<()> {
+        let repo_dir = tempfile::tempdir()?;
+        let repo = gix::init(repo_dir.path())?;
+
+        assert!(set_local_ignored_path(
+            &repo,
+            Path::new("Assets/Generated/NavMesh.asset"),
+            true,
+        )?);
+        assert!(!set_local_ignored_path(
+            &repo,
+            Path::new("Assets/Generated/NavMesh.asset"),
+            true,
+        )?);
+        assert!(set_local_ignored_path(
+            &repo,
+            Path::new("Assets/Generated"),
+            true,
+        )?);
+        assert_eq!(
+            list_local_ignored_paths(&repo)?,
+            vec!["Assets/Generated".to_owned()],
+            "a folder ignore should replace redundant ignored children"
+        );
+        assert!(!set_local_ignored_path(
+            &repo,
+            Path::new("Assets/Generated/NavMesh.asset"),
+            true,
+        )?);
+
+        assert!(!set_local_ignored_path(
+            &repo,
+            Path::new("Assets/Generated/Subdir/Bake.asset"),
+            true,
+        )?);
+        assert!(set_local_ignored_path(
+            &repo,
+            Path::new("Assets/Generated"),
+            false,
+        )?);
+        assert_eq!(
+            list_local_ignored_paths(&repo)?,
+            Vec::<String>::new(),
+            "unignoring an ignored folder should remove the folder"
+        );
+
+        let mut stale_paths = BTreeSet::from([
+            "Assets/Generated".to_owned(),
+            "Assets/Generated/Subdir/Bake.asset".to_owned(),
+        ]);
+        assert!(remove_local_ignored_path(
+            &mut stale_paths,
+            "Assets/Generated"
+        ));
+        assert!(
+            stale_paths.is_empty(),
+            "unignoring a folder should also clean up any stale ignored children"
         );
         Ok(())
     }

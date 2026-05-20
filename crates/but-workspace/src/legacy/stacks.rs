@@ -296,6 +296,15 @@ pub fn stack_details_v3(
     repo: &gix::Repository,
     meta: &impl RefMetadata,
 ) -> anyhow::Result<ui::StackDetails> {
+    fn empty_stack_details() -> ui::StackDetails {
+        ui::StackDetails {
+            derived_name: String::new(),
+            push_status: ui::PushStatus::Integrated,
+            branch_details: Vec::new(),
+            is_conflicted: false,
+        }
+    }
+
     // Prefer the current `HEAD` projection if it can still see the requested stack, and only fall
     // back to resolving from a surviving ref when that stack is no longer reachable from `HEAD`.
     fn stack_by_id(head_info: RefInfo, stack_id: StackId) -> Option<branch::Stack> {
@@ -350,9 +359,16 @@ pub fn stack_details_v3(
                         format!("Couldn't find any refs for stack {stack_id} in the repository")
                     })?;
                 let ref_info = ref_info(existing_ref, meta, ref_info_options)?;
-                stack_by_id(ref_info, stack_id).with_context(|| {
-                    format!("Really couldn't find {stack_id} in the current workspace projection")
-                })?
+                match stack_by_id(ref_info, stack_id) {
+                    Some(stack) => stack,
+                    None => {
+                        tracing::warn!(
+                            %stack_id,
+                            "Stack was found in metadata but is no longer present in the current workspace projection"
+                        );
+                        return Ok(empty_stack_details());
+                    }
+                }
             }
         }
     };

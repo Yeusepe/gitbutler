@@ -467,7 +467,17 @@ pub fn list_forge_reviews_with_cache(
                     return Ok(cached);
                 }
             }
-            let reviews = list_forge_reviews(preferred_forge_user, forge_repo_info, storage)?;
+            let reviews = match list_forge_reviews(preferred_forge_user, forge_repo_info, storage) {
+                Ok(reviews) => reviews,
+                Err(err) if !cached.is_empty() => {
+                    tracing::warn!(
+                        ?err,
+                        "Failed to refresh forge reviews; returning stale cached reviews"
+                    );
+                    return Ok(cached);
+                }
+                Err(err) => return Err(err),
+            };
             crate::db::cache_reviews(db, &reviews).ok();
             reviews
         }

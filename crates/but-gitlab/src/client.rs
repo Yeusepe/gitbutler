@@ -125,7 +125,10 @@ impl GitLabClient {
             .await?;
 
         if !response.status().is_success() {
-            bail!("Failed to list open merge requests: {}", response.status());
+            return Err(HttpStatusError {
+                status: response.status(),
+            }
+            .into());
         }
 
         let mrs: Vec<GitLabMergeRequest> = response.json().await?;

@@ -215,7 +215,10 @@ impl GitHubClient {
             .await?;
 
         if !response.status().is_success() {
-            bail!("Failed to list open pulls: {}", response.status());
+            return Err(HttpStatusError {
+                status: response.status(),
+            }
+            .into());
         }
 
         let pulls: Vec<GitHubPullRequest> = response.json().await?;

@@ -69,7 +69,10 @@ function injectBackendEndpoints(api: BackendApi) {
 				extraOptions: {
 					command: "list_reviews",
 				},
-				query: (projectId) => ({ projectId }),
+				query: (projectId) => ({
+					projectId,
+					cacheConfig: { cacheWithFallback: { max_age_seconds: 300 } },
+				}),
 				transformResponse: (response: ForgeReview[]) => {
 					const prs = response.map((pr) => mapForgeReviewToPullRequest(pr));
 					return prAdapter.addMany(prAdapter.getInitialState(), prs);

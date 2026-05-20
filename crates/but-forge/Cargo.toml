@@ -29,6 +29,7 @@ but-schemars = { workspace = true, optional = true }
 
 chrono.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+tracing.workspace = true
 
 git-url-parse = "0.6.0"
 serde.workspace = true

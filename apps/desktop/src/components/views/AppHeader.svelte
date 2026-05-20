@@ -1,20 +1,19 @@
 <script lang="ts">
+	import { goto } from "$app/navigation";
 	import CreateBranchModal from "$components/branch/CreateBranchModal.svelte";
 	import SyncButton from "$components/forge/SyncButton.svelte";
-	import OperationActivityIndicator from "$components/views/OperationActivityIndicator.svelte";
-	import ChromeProjectSelector from "$components/views/ChromeProjectSelector.svelte";
 	import IntegrateUpstreamModal from "$components/upstream/IntegrateUpstreamModal.svelte";
+	import OperationActivityIndicator from "$components/views/OperationActivityIndicator.svelte";
 	import { BACKEND } from "$lib/backend";
 	import { BASE_BRANCH_SERVICE } from "$lib/baseBranch/baseBranchService.svelte";
-	import { projectDisableCodegen } from "$lib/config/config";
 	import { MODE_SERVICE } from "$lib/mode/modeService";
+	import { handleAddProjectOutcome } from "$lib/project/project";
+	import { PROJECTS_SERVICE } from "$lib/project/projectsService";
 	import { isWorkspacePath, projectPath } from "$lib/routes/routes.svelte";
 	import { SETTINGS_SERVICE } from "$lib/settings/appSettings";
 	import { SHORTCUT_SERVICE } from "$lib/shortcuts/shortcutService";
-	import { useCreateAiStack } from "$lib/stacks/createAiStack.svelte";
 	import { inject } from "@gitbutler/core/context";
-	import { reactive } from "@gitbutler/shared/reactiveUtils.svelte";
-	import { Button, Icon, TestId, Tooltip } from "@gitbutler/ui";
+	import { Button, Icon, OptionsGroup, Select, SelectItem, TestId, Tooltip } from "@gitbutler/ui";
 	import { focusable } from "@gitbutler/ui/focus/focusable";
 
 	type Props = {
@@ -27,8 +26,9 @@
 	const { projectId, projectTitle, actionsDisabled = false, showProjectSelector = true }: Props =
 		$props();
 
-	const { createAiStack } = useCreateAiStack(reactive(() => projectId));
-
+	const projectsService = inject(PROJECTS_SERVICE);
+	const serverCapabilitiesQuery = $derived(projectsService.serverCapabilities());
+	const canAddProjects = $derived(serverCapabilitiesQuery.response?.canAddProjects ?? true);
 	const baseBranchService = inject(BASE_BRANCH_SERVICE);
 	const settingsService = inject(SETTINGS_SERVICE);
 	const modeService = inject(MODE_SERVICE);
@@ -37,12 +37,8 @@
 	const base = $derived(baseReponse?.response);
 	const settingsStore = $derived(settingsService.appSettings);
 	const singleBranchMode = $derived($settingsStore?.featureFlags.singleBranch ?? false);
+	const useCustomTitleBar = $derived(!($settingsStore?.ui.useNativeTitleBar ?? false));
 	const backend = inject(BACKEND);
-	const useOverlayTitleBar = $derived(
-		backend.platformName === "macos" && !($settingsStore?.ui.useNativeTitleBar ?? false),
-	);
-	const codegenDisabled = $derived(projectDisableCodegen(projectId));
-
 	const mode = $derived(modeService.mode(projectId));
 	const currentMode = $derived(mode.response);
 	const currentBranchName = $derived.by(() => {
@@ -74,6 +70,18 @@
 
 	let modal = $state<ReturnType<typeof IntegrateUpstreamModal>>();
 
+	const projects = $derived(projectsService.projects());
+
+	const mappedProjects = $derived(
+		projects.response?.map((project) => ({
+			value: project.id,
+			label: project.title,
+		})) || [],
+	);
+
+	let newProjectLoading = $state(false);
+	let projectSelectorOpen = $state(false);
+
 	const isOnWorkspacePage = $derived(!!isWorkspacePath());
 
 	function openModal() {
@@ -95,12 +103,12 @@
 <div
 	class="chrome-header"
 	class:mac={backend.platformName === "macos"}
-	data-tauri-drag-region={useOverlayTitleBar}
+	data-tauri-drag-region={useCustomTitleBar}
 	class:single-branch={singleBranchMode}
 	use:focusable
 >
-	<div class="chrome-left" data-tauri-drag-region={useOverlayTitleBar}>
-		<div class="chrome-left-buttons" class:has-traffic-lights={useOverlayTitleBar}>
+	<div class="chrome-left" data-tauri-drag-region={useCustomTitleBar}>
+		<div class="chrome-left-buttons" class:has-traffic-lights={useCustomTitleBar}>
 			<SyncButton {projectId} disabled={actionsDisabled} />
 			<OperationActivityIndicator {projectId} />
 
@@ -122,25 +130,101 @@
 		</div>
 	</div>
 
-	<div class="chrome-center" data-tauri-drag-region={useOverlayTitleBar}>
+	<div class="chrome-center" data-tauri-drag-region={useCustomTitleBar}>
 		{#if showProjectSelector || singleBranchMode}
 			<div class="chrome-selector-wrapper">
 				{#if showProjectSelector}
-					<ChromeProjectSelector {projectId} {projectTitle} />
+					<Select
+						searchable
+						value={projectId}
+						options={mappedProjects}
+						loading={newProjectLoading}
+						disabled={newProjectLoading}
+						onselect={(value: string, modifiers?) => {
+							if (modifiers?.meta) {
+								projectsService.openProjectInNewWindow(value);
+							} else {
+								goto(projectPath(value));
+							}
+						}}
+						ontoggle={(isOpen) => (projectSelectorOpen = isOpen)}
+						popupAlign="center"
+						customWidth={280}
+					>
+						{#snippet customSelectButton()}
+							<Button
+								testId={TestId.ChromeHeaderProjectSelector}
+								reversedDirection
+								width="auto"
+								kind="outline"
+								isDropdown
+								dropdownOpen={projectSelectorOpen}
+								class="project-selector-btn"
+							>
+								{#snippet custom()}
+									<div class="project-selector-btn__content">
+										<Icon name="repo" color="var(--text-2)" />
+										<span class="text-12 text-bold">{projectTitle}</span>
+									</div>
+								{/snippet}
+							</Button>
+						{/snippet}
+
+						{#snippet itemSnippet({ item, highlighted })}
+							<SelectItem selected={item.value === projectId} {highlighted}>
+								{item.label}
+							</SelectItem>
+						{/snippet}
+
+						<OptionsGroup>
+							{#if canAddProjects}
+								<SelectItem
+									icon="plus"
+									testId={TestId.ChromeHeaderProjectSelectorAddLocalProject}
+									loading={newProjectLoading}
+									onClick={async () => {
+										newProjectLoading = true;
+										try {
+											const outcome = await projectsService.addProject();
+											if (!outcome) {
+												// User cancelled the project creation
+												newProjectLoading = false;
+												return;
+											}
+
+											handleAddProjectOutcome(outcome, (project) => goto(projectPath(project.id)));
+										} finally {
+											newProjectLoading = false;
+										}
+									}}
+								>
+									Add local repository
+								</SelectItem>
+							{/if}
+							<SelectItem
+								icon="clone"
+								onClick={() => {
+									goto("/onboarding/clone");
+								}}
+							>
+								Clone repository
+							</SelectItem>
+						</OptionsGroup>
+					</Select>
 				{/if}
-				{#if singleBranchMode}
-					<Tooltip text="Current branch">
-						<div class="chrome-current-branch" class:standalone={!showProjectSelector}>
-							<div class="chrome-current-branch__content">
-								<Icon name="branch" color="var(--text-2)" />
-								<span class="text-12 text-bold clr-text-2 truncate">{currentBranchName}</span>
-								{#if isNotInWorkspace}
-									<span class="text-12 text-bold clr-text-2 op-60"> read-only </span>
-								{/if}
-							</div>
+			{#if singleBranchMode}
+				<Tooltip text="Current branch">
+					<div class="chrome-current-branch" class:standalone={!showProjectSelector}>
+						<div class="chrome-current-branch__content">
+							<Icon name="branch" color="var(--text-2)" />
+							<span class="text-12 text-bold clr-text-2 truncate">{currentBranchName}</span>
+							{#if isNotInWorkspace}
+								<span class="text-12 text-bold clr-text-2 op-60"> read-only </span>
+							{/if}
 						</div>
-					</Tooltip>
-				{/if}
+					</div>
+				</Tooltip>
+			{/if}
 			</div>
 		{/if}
 
@@ -161,7 +245,7 @@
 		{/if}
 	</div>
 
-	<div class="chrome-right" data-tauri-drag-region={useOverlayTitleBar}>
+	<div class="chrome-right" data-tauri-drag-region={useCustomTitleBar}>
 		{#if isOnWorkspacePage}
 			<Button
 				testId={TestId.ChromeHeaderCreateBranchButton}
@@ -173,17 +257,6 @@
 			>
 				Create branch
 			</Button>
-			{#if !$codegenDisabled}
-				<Button
-					testId={TestId.ChromeHeaderCreateCodegenSessionButton}
-					kind="outline"
-					tooltip="New Codegen Session"
-					icon="ai-plus"
-					onclick={() => {
-						createAiStack();
-					}}
-				/>
-			{/if}
 		{/if}
 	</div>
 </div>
@@ -209,6 +282,14 @@
 	:global(.chrome-header.single-branch .project-selector-btn) {
 		border-top-right-radius: 0;
 		border-bottom-right-radius: 0;
+	}
+
+	.project-selector-btn__content {
+		display: flex;
+		align-items: center;
+		padding-right: 2px;
+		gap: 6px;
+		text-wrap: nowrap;
 	}
 
 	.chrome-current-branch {

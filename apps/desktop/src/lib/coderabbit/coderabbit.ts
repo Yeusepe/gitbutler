@@ -48,6 +48,7 @@ export type CodeRabbitReviewRequest = {
 	reviewId?: string;
 	reviewType?: "all" | "committed" | "uncommitted";
 	base?: string;
+	directory?: string;
 	files?: string[];
 	workflows?: CodeRabbitWorkflowId[];
 	instructions?: string;

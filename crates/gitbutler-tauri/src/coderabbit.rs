@@ -111,6 +111,7 @@ pub struct CodeRabbitReviewRequest {
     #[serde(default = "default_review_type")]
     review_type: String,
     base: Option<String>,
+    directory: Option<String>,
     #[serde(default)]
     files: Vec<String>,
     #[serde(default)]
@@ -628,6 +629,15 @@ fn run_review(
         args.push("--base".to_string());
         args.push(base);
     }
+    if let Some(directory) = request
+        .directory
+        .as_deref()
+        .map(str::trim)
+        .filter(|directory| !directory.is_empty())
+    {
+        args.push("--dir".to_string());
+        args.push(directory.to_string());
+    }
     let files = request
         .files
         .into_iter()
@@ -988,10 +998,16 @@ fn write_custom_instruction_file(
     workdir: &Path,
     instructions: Option<&str>,
 ) -> anyhow::Result<Option<PathBuf>> {
-    let Some(instructions) = instructions.map(str::trim).filter(|value| !value.is_empty()) else {
+    let Some(instructions) = instructions
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
         return Ok(None);
     };
-    let path = std::env::temp_dir().join(format!("gitbutler-coderabbit-custom-{}.md", new_review_id()));
+    let path = std::env::temp_dir().join(format!(
+        "gitbutler-coderabbit-custom-{}.md",
+        new_review_id()
+    ));
     std::fs::write(
         &path,
         format!(

@@ -4,14 +4,10 @@ import { InjectionToken } from "@gitbutler/core/context";
 import { reactive } from "@gitbutler/shared/reactiveUtils.svelte";
 import { type Reactive } from "@gitbutler/shared/storeUtils";
 import { createEntityAdapter, createSlice, type EntityState } from "@reduxjs/toolkit";
+import type { TerminalService } from "$lib/settings/terminalService";
 import type { AppDispatch } from "$lib/state/clientState.svelte";
 import type { ScrollbarVisilitySettings } from "@gitbutler/ui";
 
-// These types are defined here to avoid circular imports with feature modules.
-// Feature modules (codegen, settings, stacks) import these types from here.
-export type ThinkingLevel = "normal" | "think" | "megaThink" | "ultraThink";
-export type ModelType = "haiku" | "sonnet" | "sonnet[1m]" | "opus" | "opusplan";
-export type PermissionMode = "default" | "plan" | "acceptEdits";
 export type GeneralSettingsPageId =
 	| "general"
 	| "appearance"
@@ -23,7 +19,7 @@ export type GeneralSettingsPageId =
 	| "telemetry"
 	| "experimental"
 	| "organizations";
-export type ProjectSettingsPageId = "project" | "git" | "ai" | "agent" | "experimental";
+export type ProjectSettingsPageId = "project" | "git" | "ai" | "experimental";
 export type RejectionReason =
 	| "workspaceMergeConflict"
 	| "workspaceMergeConflictOfUnrelatedFile"
@@ -44,7 +40,6 @@ export type StackSelection = {
 	commitIds?: string[];
 	upstream?: boolean;
 	previewOpen: boolean;
-	codegen?: boolean;
 	irc?: boolean;
 };
 
@@ -56,14 +51,6 @@ export type NewCommitMessage = {
 export type StackState = {
 	selection: StackSelection | undefined;
 	newCommitMessage: NewCommitMessage;
-	// The current codegen prompt
-	prompt: string;
-	// The permission mode for Claude Code
-	permissionMode: PermissionMode;
-	// A list of mcp server names that should be disabled
-	disabledMcpServers: string[];
-	// A list of added directories for Claude Code
-	addedDirs: string[];
 };
 
 export type ExclusiveAction =
@@ -81,9 +68,6 @@ export type ExclusiveAction =
 			commitId: string;
 	  }
 	| {
-			type: "codegen";
-	  }
-	| {
 			type: "create-pr";
 			stackId: string | undefined;
 			branchName: string;
@@ -99,9 +83,6 @@ export type ProjectUiState = {
 	exclusiveAction: ExclusiveAction | undefined;
 	stackBusy: StackBusyState | undefined;
 	branchesToPoll: string[];
-	selectedClaudeSession: { stackId: string; head: string } | undefined;
-	thinkingLevel: ThinkingLevel;
-	selectedModel: ModelType;
 };
 
 type GlobalModalType =
@@ -235,11 +216,6 @@ export class UiState {
 	readonly lane = this.buildScopedProps<StackState>(this.scopesCache.lanes, {
 		selection: undefined,
 		newCommitMessage: { title: "", description: "" },
-		prompt: "",
-		// I _know_ we have a permission mode called 'default', but acceptEdits is a much more sensible default.
-		permissionMode: "acceptEdits",
-		disabledMcpServers: [],
-		addedDirs: [],
 	});
 
 	/** Properties scoped to a specific project. */
@@ -247,9 +223,6 @@ export class UiState {
 		exclusiveAction: undefined,
 		stackBusy: undefined,
 		branchesToPoll: [],
-		selectedClaudeSession: undefined,
-		thinkingLevel: "normal",
-		selectedModel: "sonnet",
 	});
 
 	/** Properties that are globally scoped. */
@@ -511,17 +484,6 @@ export type WritableReactiveStore<T extends DefaultConfig> = {
 	[K in keyof T]: WritableReactive<T[K]>;
 };
 
-function defaultTerminalForPlatform(platformName: string): TerminalSettings {
-	switch (platformName) {
-		case "windows":
-			return { identifier: "powershell", displayName: "PowerShell", platform: "windows" };
-		case "linux":
-			return { identifier: "gnome-terminal", displayName: "GNOME Terminal", platform: "linux" };
-		default:
-			return { identifier: "terminal", displayName: "Terminal", platform: "macos" };
-	}
-}
-
 const LEGACY_SETTINGS_KEY = "settings-json";
 
 /**
@@ -533,7 +495,11 @@ const LEGACY_SETTINGS_KEY = "settings-json";
  * Must be called after Redux Persist has rehydrated so that migrated values
  * are not overwritten.
  */
-export function initUserSettings(uiState: UiState, platformName: string) {
+export async function initUserSettings(
+	uiState: UiState,
+	platformName: string,
+	terminalService: TerminalService,
+) {
 	const raw = localStorage.getItem(LEGACY_SETTINGS_KEY);
 	if (raw) {
 		try {
@@ -555,14 +521,21 @@ export function initUserSettings(uiState: UiState, platformName: string) {
 		}
 	}
 
-	// Ensure the terminal default matches the platform. The static default
-	// is macOS; on Windows/Linux (or after migration that didn't include a
-	// terminal) this resolves to the correct platform terminal.
+	// Ensure the terminal default matches the platform.
 	const DESKTOP_PLATFORMS = ["macos", "windows", "linux"];
 	if (DESKTOP_PLATFORMS.includes(platformName)) {
 		const terminal = uiState.global.defaultTerminal.current as TerminalSettings | null;
 		if (terminal?.platform !== platformName) {
-			uiState.global.defaultTerminal.set(defaultTerminalForPlatform(platformName));
+			try {
+				const recommended = await terminalService.getRecommendedTerminalForPlatform(platformName);
+				const fallback =
+					recommended ?? (await terminalService.getTerminalOptionsForPlatform(platformName))[0];
+				if (fallback) {
+					uiState.global.defaultTerminal.set(fallback);
+				}
+			} catch (err) {
+				console.error("Failed to get recommended terminal", err);
+			}
 		}
 	}
 }

@@ -78,9 +78,6 @@
 			case "semanticType":
 				initialValues.semanticType = filter.subject;
 				return true;
-			case "claudeCodeSessionId":
-				initialValues.claudeCodeSessionId = filter.subject;
-				return true;
 		}
 	}
 
@@ -110,24 +107,6 @@
 		editorInitialFilterValues = initialValues;
 
 		mode = "edit";
-	}
-
-	function separateRules(allRules: WorkspaceRule[]) {
-		const regularRules: WorkspaceRule[] = [];
-		const aiRules: WorkspaceRule[] = [];
-
-		for (const rule of allRules) {
-			const hasAiFilter = rule.filters.some(
-				(filter: RuleFilter) => filter.type === "claudeCodeSessionId",
-			);
-			if (hasAiFilter) {
-				aiRules.push(rule);
-			} else {
-				regularRules.push(rule);
-			}
-		}
-
-		return { regularRules, aiRules };
 	}
 </script>
 
@@ -210,10 +189,8 @@
 
 		{#snippet children(rulesEntityState)}
 			{@const rulesArray = workspaceRulesSelectors.selectAll(rulesEntityState)}
-			{@const { regularRules, aiRules } = separateRules(rulesArray)}
-			{@const totalRules = regularRules.length + aiRules.length}
 
-			{#if totalRules > 0}
+			{#if rulesArray.length > 0}
 				{#if mode === "add"}
 					<div in:slide={{ duration: 150 }}>
 						<RuleEditor {projectId} onsave={closeEditor} oncancel={closeEditor} />
@@ -221,45 +198,22 @@
 				{/if}
 
 				<div class="rules-list__content">
-					{#if regularRules.length > 0}
-						{#each regularRules.slice().reverse() as rule (rule.id)}
-							{#if editingRuleId === rule.id}
-								<div in:slide={{ duration: 150 }}>
-									<RuleEditor
-										{projectId}
-										ruleId={rule.id}
-										initialStackTarget={editorInitialStackTarget}
-										initialFilterValues={editorInitialFilterValues}
-										onsave={closeEditor}
-										oncancel={closeEditor}
-									/>
-								</div>
-							{:else}
-								<Rule {projectId} {rule} editRule={() => editExistingRule(rule)} />
-							{/if}
-						{/each}
-					{/if}
-
-					{#if aiRules.length > 0}
-						<div class="rules-section">
-							{#each aiRules.slice().reverse() as rule (rule.id)}
-								{#if editingRuleId === rule.id}
-									<div in:slide={{ duration: 150 }}>
-										<RuleEditor
-											{projectId}
-											ruleId={rule.id}
-											initialStackTarget={editorInitialStackTarget}
-											initialFilterValues={editorInitialFilterValues}
-											onsave={closeEditor}
-											oncancel={closeEditor}
-										/>
-									</div>
-								{:else}
-									<Rule {projectId} {rule} editRule={() => editExistingRule(rule)} />
-								{/if}
-							{/each}
-						</div>
-					{/if}
+					{#each rulesArray.slice().reverse() as rule (rule.id)}
+						{#if editingRuleId === rule.id}
+							<div in:slide={{ duration: 150 }}>
+								<RuleEditor
+									{projectId}
+									ruleId={rule.id}
+									initialStackTarget={editorInitialStackTarget}
+									initialFilterValues={editorInitialFilterValues}
+									onsave={closeEditor}
+									oncancel={closeEditor}
+								/>
+							</div>
+						{:else}
+							<Rule {projectId} {rule} editRule={() => editExistingRule(rule)} />
+						{/if}
+					{/each}
 				</div>
 			{:else if mode === "add"}
 				<div in:slide={{ duration: 170 }}>
@@ -314,11 +268,6 @@
 
 	.rules-list__error {
 		padding: 8px;
-	}
-
-	.rules-section {
-		display: flex;
-		flex-direction: column;
 	}
 
 	.rule-skeleton {

@@ -1,7 +1,7 @@
 //! In place of commands.rs
 use std::str::FromStr;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use but_api_macros::but_api;
 use but_core::ref_metadata::StackId;
 use but_ctx::Context;
@@ -24,7 +24,8 @@ pub fn create_workspace_rule(
 #[but_api]
 #[instrument(err(Debug))]
 pub fn delete_workspace_rule(ctx: &Context, rule_id: String) -> Result<()> {
-    delete_rule(ctx, &rule_id)
+    let mut db = ctx.db.get_cache_mut()?;
+    delete_rule(&mut db, &rule_id)
 }
 
 #[but_api]
@@ -43,15 +44,14 @@ pub fn list_workspace_rules(ctx: &Context) -> Result<Vec<WorkspaceRule>> {
     let in_workspace = crate::legacy::workspace::stacks_v3_from_ctx(
         ctx,
         but_workspace::legacy::StacksFilter::InWorkspace,
-    )
-    .context("failed to load workspace stacks before filtering workspace rules")?
+    )?
     .iter()
     .filter_map(|s| s.id)
     .collect::<Vec<StackId>>();
 
     // Filter out specifically Codegen related rules that are refering to a stack that is not in the workspace.
-    let rules = list_rules(ctx)
-        .context("failed to load workspace rules")?
+    let db = ctx.db.get_cache()?;
+    let rules = list_rules(&db)?
         .into_iter()
         .filter(|rule| {
             if let (Some(_), Some(stack_id)) = (

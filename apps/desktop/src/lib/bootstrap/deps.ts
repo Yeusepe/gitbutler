@@ -6,15 +6,11 @@ import { AIService, AI_SERVICE } from "$lib/ai/service";
 import { CommitAnalytics, COMMIT_ANALYTICS } from "$lib/analytics/commitAnalytics";
 import { type IBackend } from "$lib/backend";
 import { BACKEND } from "$lib/backend";
-import { BackupService, BACKUP_SERVICE } from "$lib/backups/backupService.svelte";
 import ClipboardService, { CLIPBOARD_SERVICE } from "$lib/backend/clipboard";
 import URLService, { URL_SERVICE } from "$lib/backend/url";
 import BaseBranchService, { BASE_BRANCH_SERVICE } from "$lib/baseBranch/baseBranchService.svelte";
 import { BranchService, BRANCH_SERVICE } from "$lib/branches/branchService.svelte";
-import { ATTACHMENT_SERVICE, AttachmentService } from "$lib/codegen/attachmentService.svelte";
-import { CLAUDE_CODE_SERVICE, ClaudeCodeService } from "$lib/codegen/claude";
 import { CODERABBIT_SERVICE, CodeRabbitService } from "$lib/coderabbit/coderabbit";
-import { CodegenAnalytics, CODEGEN_ANALYTICS } from "$lib/codegen/codegenAnalytics";
 import CLIManager, { CLI_MANAGER } from "$lib/config/cli";
 import { GIT_CONFIG_SERVICE, GitConfigService } from "$lib/config/gitConfigService";
 import DependencyService, { DEPENDENCY_SERVICE } from "$lib/dependencies/dependencyService.svelte";
@@ -38,7 +34,6 @@ import { HISTORY_SERVICE, HistoryService } from "$lib/history/history";
 import { OplogService, OPLOG_SERVICE } from "$lib/history/oplogService.svelte";
 import { DiffService, DIFF_SERVICE } from "$lib/hunks/diffService.svelte";
 import { IrcApiService, IRC_API_SERVICE } from "$lib/irc/ircApiService";
-import { IRC_SESSION_BRIDGE, IrcSessionBridge } from "$lib/irc/sessionBridge.svelte";
 import {
 	WORKING_FILES_BROADCAST,
 	WorkingFilesBroadcast,
@@ -54,6 +49,7 @@ import {
 } from "$lib/selection/fileSelectionManager.svelte";
 import { UncommittedService, UNCOMMITTED_SERVICE } from "$lib/selection/uncommittedService.svelte";
 import { SETTINGS_SERVICE, SettingsService } from "$lib/settings/appSettings";
+import { TerminalService, TERMINAL_SERVICE } from "$lib/settings/terminalService";
 import { ShortcutService, SHORTCUT_SERVICE } from "$lib/shortcuts/shortcutService";
 import { StackService, STACK_SERVICE } from "$lib/stacks/stackService.svelte";
 import { ClientState, CLIENT_STATE } from "$lib/state/clientState.svelte";
@@ -66,10 +62,6 @@ import {
 	UpstreamIntegrationService,
 	UPSTREAM_INTEGRATION_SERVICE,
 } from "$lib/upstream/upstreamIntegrationService.svelte";
-import {
-	AUTHOR_IDENTITY_SERVICE,
-	createAuthorIdentityService,
-} from "$lib/user/authorIdentityService";
 import { TokenMemoryService } from "$lib/user/tokenMemoryService";
 import { USER_SERVICE, UserService } from "$lib/user/userService.svelte";
 import { WorktreeService, WORKTREE_SERVICE } from "$lib/worktree/worktreeService.svelte";
@@ -155,20 +147,14 @@ export function initDependencies(args: {
 
 	const projectsService = new ProjectsService(clientState.backendApi, homeDir, backend);
 	const gitConfig = new GitConfigService(clientState.backendApi, clientState.dispatch, backend);
+	const terminalService = new TerminalService(backend);
 
 	// ============================================================================
 	// AI SERVICES
 	// ============================================================================
 
 	const aiPromptService = new AIPromptService();
-	const aiService = new AIService(
-		gitConfig,
-		secretsService,
-		httpClient,
-		tokenMemoryService,
-		backend,
-	);
-	const claudeCodeService = new ClaudeCodeService(backend, clientState.backendApi);
+	const aiService = new AIService(gitConfig, secretsService, httpClient, tokenMemoryService, backend);
 	const codeRabbitService = new CodeRabbitService(clientState.backendApi);
 	const userService = new UserService(
 		clientState.backendApi,
@@ -178,15 +164,6 @@ export function initDependencies(args: {
 		uiState,
 	);
 	const ircApiService = new IrcApiService(clientState.backendApi);
-	const attachmentService = new AttachmentService(clientState);
-
-	const ircSessionBridge = new IrcSessionBridge(
-		backend,
-		ircApiService,
-		claudeCodeService,
-		settingsService,
-	);
-
 	const workingFilesBroadcast = new WorkingFilesBroadcast(backend);
 
 	// ============================================================================
@@ -201,13 +178,6 @@ export function initDependencies(args: {
 		gitLabApi: clientState.gitlabApi,
 		dispatch: clientState.dispatch,
 		posthog,
-	});
-	const authorIdentityService = createAuthorIdentityService({
-		forgeFactory,
-		gitHubClient,
-		gitLabClient,
-		gitConfigService: gitConfig,
-		userService,
 	});
 
 	// ============================================================================
@@ -249,7 +219,6 @@ export function initDependencies(args: {
 	const fModeManager = new FModeManager();
 	const focusManager = new FocusManager(fModeManager);
 	const historyService = new HistoryService(backend, clientState.backendApi);
-	const backupService = new BackupService(clientState.backendApi, backend);
 	const oplogService = new OplogService(clientState.backendApi);
 	const commitAnalytics = new CommitAnalytics(
 		stackService,
@@ -259,8 +228,6 @@ export function initDependencies(args: {
 		fModeManager,
 		projectsService,
 	);
-	const codegenAnalytics = new CodegenAnalytics(claudeCodeService, settingsService);
-
 	// ============================================================================
 	// SELECTION & EDITING
 	// ============================================================================
@@ -345,21 +312,17 @@ export function initDependencies(args: {
 	provideAll([
 		[AI_PROMPT_SERVICE, aiPromptService],
 		[AI_SERVICE, aiService],
-		[AUTHOR_IDENTITY_SERVICE, authorIdentityService],
 		[APP_DISPATCH, appState.appDispatch],
 		[APP_STATE, appState],
 		[BACKEND, backend],
-		[BACKUP_SERVICE, backupService],
 		[BASE_BRANCH_SERVICE, baseBranchService],
 		[BRANCH_SERVICE, branchService],
 		[CHERRY_APPLY_SERVICE, cherryApplyService],
-		[CLAUDE_CODE_SERVICE, claudeCodeService],
 		[CLIENT_STATE, clientState],
 		[CLIPBOARD_SERVICE, clipboardService],
 		[CLI_MANAGER, cliManager],
 		[CLOUD_USER_SERVICE, cloudUserService],
 		[COMMIT_ANALYTICS, commitAnalytics],
-		[CODEGEN_ANALYTICS, codegenAnalytics],
 		[CODERABBIT_SERVICE, codeRabbitService],
 		[DATA_SHARING_SERVICE, dataSharingService],
 		[DEFAULT_FORGE_FACTORY, forgeFactory],
@@ -389,12 +352,12 @@ export function initDependencies(args: {
 		[POSTHOG_WRAPPER, posthog],
 		[PROJECTS_SERVICE, projectsService],
 		[PROMPT_SERVICE, promptService],
-		[ATTACHMENT_SERVICE, attachmentService],
 		[REMOTES_SERVICE, remotesService],
 		[RESIZE_SYNC, resizeSync],
 		[RULES_SERVICE, rulesService],
 		[SECRET_SERVICE, secretsService],
 		[SETTINGS_SERVICE, settingsService],
+		[TERMINAL_SERVICE, terminalService],
 		[SHORTCUT_SERVICE, shortcutService],
 		[STACK_SERVICE, stackService],
 		[REORDER_DROPZONE_FACTORY, reorderDropzoneFactory],
@@ -407,7 +370,6 @@ export function initDependencies(args: {
 		[USER_SERVICE, userService],
 		[WORKTREE_SERVICE, worktreeService],
 		[EXTERNAL_LINK_SERVICE, externalLinkService],
-		[IRC_SESSION_BRIDGE, ircSessionBridge],
 		[WORKING_FILES_BROADCAST, workingFilesBroadcast],
 	]);
 }

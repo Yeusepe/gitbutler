@@ -822,9 +822,11 @@ pub fn worktree_conflict_preview(
     )?;
 
     let normalized_path = path.replace('\\', "/");
-    let Some(conflict) = merge.conflicts.iter().find(|conflict| {
-        conflict.ours.location().to_str_lossy().as_ref() == normalized_path
-    }) else {
+    let Some(conflict) = merge
+        .conflicts
+        .iter()
+        .find(|conflict| conflict.ours.location().to_str_lossy().as_ref() == normalized_path)
+    else {
         return Ok(None);
     };
 
@@ -888,12 +890,13 @@ fn materialize_preview_content(
 
     if matches!(side, PreviewSide::Local) {
         if let Some(workdir) = repo.workdir() {
-            let worktree_content = std::fs::read_to_string(workdir.join(path)).with_context(|| {
-                format!(
-                    "Failed to read local Unity file {}",
-                    workdir.join(path).display()
-                )
-            })?;
+            let worktree_content =
+                std::fs::read_to_string(workdir.join(path)).with_context(|| {
+                    format!(
+                        "Failed to read local Unity file {}",
+                        workdir.join(path).display()
+                    )
+                })?;
             if !is_git_lfs_pointer(&worktree_content) {
                 return Ok(worktree_content);
             }

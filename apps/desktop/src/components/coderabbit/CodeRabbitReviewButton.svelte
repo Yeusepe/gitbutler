@@ -11,6 +11,20 @@
 	import type { DropzoneHandler } from "$lib/dragging/handler";
 	import type { CodeRabbitWorkflowId } from "$lib/coderabbit/coderabbit";
 
+	class CodeRabbitDropHandler implements DropzoneHandler {
+		constructor(private onReviewScope: (data: FileChangeDropData | FolderChangeDropData) => void) {}
+
+		accepts(data: unknown): boolean {
+			return data instanceof FileChangeDropData || data instanceof FolderChangeDropData;
+		}
+
+		ondrop(data: unknown): void {
+			if (data instanceof FileChangeDropData || data instanceof FolderChangeDropData) {
+				this.onReviewScope(data);
+			}
+		}
+	}
+
 	type Props = {
 		projectId: string;
 		files?: string[];
@@ -49,6 +63,7 @@
 	let dropPromptOpen = $state(false);
 	let dropPromptPosition = $state({ top: 0, left: 0 });
 	let dropReviewFiles = $state<string[]>([]);
+	let dropReviewDirectory = $state<string | undefined>();
 	let dropReviewInstructions = $state("");
 	let dropzoneHovered = $state(false);
 	let now = $state(Date.now());
@@ -120,7 +135,7 @@
 
 	async function runReview(
 		workflows: CodeRabbitWorkflowId[] = ["default"],
-		override?: { files?: string[]; instructions?: string },
+		override?: { directory?: string; files?: string[]; instructions?: string },
 	) {
 		activeWorkflow = workflows[0] ?? "default";
 		workflowMenuOpen = false;
@@ -144,6 +159,7 @@
 					reviewId,
 					reviewType,
 					base,
+					directory: override?.directory,
 					files: override?.files ?? files,
 					workflows,
 					instructions: override?.instructions,
@@ -168,8 +184,13 @@
 	}
 
 	async function openDroppedReviewPrompt(data: FileChangeDropData | FolderChangeDropData) {
+		dropReviewDirectory = data instanceof FolderChangeDropData ? data.folderPath : undefined;
 		const changes = await data.treeChanges();
 		dropReviewFiles = Array.from(new Set(changes.map((change) => change.path)));
+		if (!dropReviewDirectory && dropReviewFiles.length === 0) {
+			chipToasts.warning("No changed files found for CodeRabbit review");
+			return;
+		}
 		dropReviewInstructions = "";
 		updateDropPromptPosition();
 		dropPromptOpen = true;
@@ -185,13 +206,15 @@
 	}
 
 	function droppedScopeLabel() {
+		if (dropReviewDirectory) return dropReviewDirectory;
 		if (dropReviewFiles.length === 1) return dropReviewFiles[0];
 		return `${dropReviewFiles.length} files`;
 	}
 
 	async function runDroppedReview() {
 		await runReview(["default"], {
-			files: dropReviewFiles,
+			directory: dropReviewDirectory,
+			files: dropReviewDirectory ? [] : dropReviewFiles,
 			instructions: dropReviewInstructions.trim() || undefined,
 		});
 	}
@@ -270,26 +293,9 @@
 			showError("Failed to create CodeRabbit config", error);
 		}
 	}
-
-	class CodeRabbitDropHandler implements DropzoneHandler {
-		constructor(private onReviewScope: (data: FileChangeDropData | FolderChangeDropData) => void) {}
-
-		accepts(data: unknown): boolean {
-			return data instanceof FileChangeDropData || data instanceof FolderChangeDropData;
-		}
-
-		ondrop(data: unknown): void {
-			if (data instanceof FileChangeDropData || data instanceof FolderChangeDropData) {
-				this.onReviewScope(data);
-			}
-		}
-	}
 </script>
 
-<Dropzone
-	handlers={[codeRabbitDropHandler]}
-	onHovered={(hovered) => (dropzoneHovered = hovered)}
->
+<Dropzone handlers={[codeRabbitDropHandler]} onHovered={(hovered) => (dropzoneHovered = hovered)}>
 	{#snippet children()}
 		<div class="coderabbit-review dropzone-target" class:dropzone-hovered={dropzoneHovered}>
 			<div
@@ -351,19 +357,19 @@
 					</div>
 				{/if}
 			</div>
-	<div class="workflow-anchor" bind:this={workflowAnchor}>
-		<Button
-			type="button"
-			kind="ghost"
-			size="tag"
-			icon={isReviewing ? "cross" : "chevron-down"}
-			tooltip={isReviewing ? "Cancel CodeRabbit review" : "CodeRabbit review workflows"}
-			onclick={(event) => {
-				event.stopPropagation();
-				isReviewing ? cancelReview() : toggleWorkflowMenu();
-			}}
-		/>
-	</div>
+			<div class="workflow-anchor" bind:this={workflowAnchor}>
+				<Button
+					type="button"
+					kind="ghost"
+					size="tag"
+					icon={isReviewing ? "cross" : "chevron-down"}
+					tooltip={isReviewing ? "Cancel CodeRabbit review" : "CodeRabbit review workflows"}
+					onclick={(event) => {
+						event.stopPropagation();
+						isReviewing ? cancelReview() : toggleWorkflowMenu();
+					}}
+				/>
+			</div>
 		</div>
 	{/snippet}
 </Dropzone>
@@ -377,6 +383,8 @@
 	>
 		<div
 			class="drop-prompt"
+			role="dialog"
+			tabindex="-1"
 			style:top={`${dropPromptPosition.top}px`}
 			style:left={`${dropPromptPosition.left}px`}
 			onclick={(event) => event.stopPropagation()}
@@ -396,7 +404,7 @@
 			></textarea>
 			<div class="drop-prompt__actions">
 				<Button kind="ghost" size="tag" onclick={() => (dropPromptOpen = false)}>Cancel</Button>
-				<Button kind="primary" size="tag" onclick={runDroppedReview}>Review dropped scope</Button>
+				<Button kind="solid" size="tag" onclick={runDroppedReview}>Review dropped scope</Button>
 			</div>
 		</div>
 	</div>

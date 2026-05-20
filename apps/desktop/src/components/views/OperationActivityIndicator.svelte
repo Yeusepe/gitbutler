@@ -5,8 +5,10 @@
 		recordGitOperationProgress,
 		type GitOperationProgress,
 	} from "$lib/activity/operationActivity";
+	import { CODERABBIT_SERVICE } from "$lib/coderabbit/coderabbit";
 	import { inject } from "@gitbutler/core/context";
 	import { Icon, Tooltip } from "@gitbutler/ui";
+	import type { CodeRabbitReviewStepStatus } from "$lib/coderabbit/coderabbit";
 
 	type Props = {
 		projectId: string;
@@ -15,7 +17,18 @@
 	const { projectId }: Props = $props();
 
 	const backend = inject(BACKEND);
-	const activeActivity = $derived($operationActivityStore.activities[0]);
+	const codeRabbitService = inject(CODERABBIT_SERVICE);
+	const codeRabbitStatusQuery = $derived(codeRabbitService.status(projectId));
+	const codeRabbitProgress = $derived(codeRabbitStatusQuery.response?.activeProgress);
+	const gitActivity = $derived($operationActivityStore.activities[0]);
+	const activeActivity = $derived.by(() => {
+		if (!codeRabbitProgress) return gitActivity;
+		return {
+			label: `CodeRabbit ${codeRabbitProgress.phase}`,
+			detail: codeRabbitProgress.detail,
+			startedAt: codeRabbitProgress.startedAtMs,
+		};
+	});
 	let elapsedTick = $state(Date.now());
 	let contentElement = $state<HTMLDivElement>();
 	let contentWidth = $state(0);
@@ -34,6 +47,9 @@
 		if (!activeActivity) return;
 		const timer = window.setInterval(() => {
 			elapsedTick = Date.now();
+			if (codeRabbitProgress) {
+				codeRabbitStatusQuery.result.refetch();
+			}
 		}, 1000);
 		return () => window.clearInterval(timer);
 	});
@@ -56,9 +72,49 @@
 	const label = $derived(activeActivity ? `${activeActivity.label} ${elapsedLabel}` : "");
 	const tooltip = $derived.by(() => {
 		if (!activeActivity) return "";
+		if (codeRabbitProgress) return codeRabbitTooltip();
 		if (activeActivity.detail) return `${label}. ${activeActivity.detail}`;
 		return label;
 	});
+
+	function codeRabbitTooltip() {
+		if (!codeRabbitProgress) return "";
+		const lines = [
+			`${label}. ${codeRabbitProgress.detail}`,
+			"",
+			...codeRabbitProgress.steps.map((step) => {
+				const detail = step.detail ? ` - ${step.detail}` : "";
+				return `${stepStatusIcon(step.status)} ${step.label}: ${stepStatusLabel(step.status)}${detail}`;
+			}),
+		];
+		return lines.join("\n");
+	}
+
+	function stepStatusIcon(status: CodeRabbitReviewStepStatus) {
+		switch (status) {
+			case "pending":
+				return "[ ]";
+			case "running":
+				return "[~]";
+			case "complete":
+				return "[x]";
+			case "failed":
+				return "[!]";
+		}
+	}
+
+	function stepStatusLabel(status: CodeRabbitReviewStepStatus) {
+		switch (status) {
+			case "pending":
+				return "Waiting";
+			case "running":
+				return "Running";
+			case "complete":
+				return "Done";
+			case "failed":
+				return "Failed";
+		}
+	}
 
 	function formatElapsed(ms: number): string {
 		const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -75,7 +131,7 @@
 	style:width={activeActivity ? `${contentWidth}px` : "0px"}
 >
 	{#if activeActivity}
-		<Tooltip text={tooltip}>
+		<Tooltip text={tooltip} maxWidth={420}>
 			<div bind:this={contentElement} class="operation-activity" role="status" aria-live="polite">
 				<Icon name="spinner" />
 				<span class="text-12 text-semibold truncate">{label}</span>

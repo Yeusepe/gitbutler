@@ -1,6 +1,5 @@
 import { createBackendApi, type BackendApi } from "$lib/state/backendApi";
 import { butlerModule } from "$lib/state/butlerModule";
-import { messageQueueAdapter, messageQueueSlice } from "$lib/state/messageQueueSlice";
 import { ReduxTag } from "$lib/state/tags";
 import {
 	sanitizePersistedUiStateKey,
@@ -87,10 +86,6 @@ export class ClientState {
 	rootState = $state.raw<AppState | undefined>(undefined);
 	readonly uiState = $derived(this.rootState?.uiState);
 
-	readonly messageQueue = $derived(
-		this.rootState?.messageQueue ?? messageQueueAdapter.getInitialState(),
-	);
-
 	/** rtk-query api for communicating with the back end. */
 	readonly backendApi: BackendApi;
 
@@ -106,7 +101,7 @@ export class ClientState {
 		gitLabClient: GitLabClient,
 		posthog: PostHogWrapper,
 	) {
-		// Cast required: store state has non-RTKQ slices (uiState, messageQueue)
+		// Cast required: store state has non-RTKQ slices (uiState)
 		// that don't satisfy RootState's CombinedState index signature.
 		const ctx = {
 			getState: () => this.rootState as unknown as RootState<any, any, any>,
@@ -205,15 +200,7 @@ function createStore(params: {
 				},
 				uiStateSlice.reducer,
 			),
-		})
-		.inject({
-			reducerPath: messageQueueSlice.reducerPath,
-			reducer: persistReducer(
-				{ key: messageQueueSlice.reducerPath, storage },
-				messageQueueSlice.reducer,
-			),
 		});
-
 	const store = configureStore({
 		reducer,
 		middleware: (getDefaultMiddleware) => {
